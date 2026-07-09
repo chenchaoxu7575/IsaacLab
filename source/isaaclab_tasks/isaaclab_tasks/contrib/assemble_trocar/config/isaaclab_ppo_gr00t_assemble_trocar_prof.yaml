@@ -24,6 +24,25 @@ cluster:
   num_nodes: 1
   component_placement:
       actor,env,rollout: all
+  # Native RLinf per-worker Nsight (feat(nsys) #1125). Each matched worker is
+  # wrapped with its own `nsys profile` -> rlinf_nsight_{Worker}_{pid}.nsys-rep
+  # under <log_path>/<experiment_name>/nsights/. Based on the `full` preset
+  # (all 6 groups incl. EnvGroup = Isaac Sim / sim), plus graphics tracing.
+  # Capture is gated to RL steps [3,4] by the in-code cudaProfiler gate
+  # (capture-range=cudaProfilerApi); set PROF_GATE_START=3 PROF_GATE_NSTEPS=2.
+  nsight:
+    enabled: true
+    worker_groups: [ActorGroup, RolloutGroup, EnvGroup, Actor, Rollout, Env]
+    options:
+      t: cuda,cudnn,cublas,nvtx,osrt,vulkan   # +vulkan: Isaac Sim RTX (camera render)
+      cuda-graph-trace: node                  # trace CUDA graphs (rollout capture_cuda_graph)
+      sample: process-tree
+      cpuctxsw: process-tree
+      cudabacktrace: all
+      osrt-threshold: 1000
+      capture-range: cudaProfilerApi          # gate to the cudaProfilerStart/Stop window
+      capture-range-end: stop                 # stop collecting when the gated range ends
+    flags: []
 
 runner:
   task_type: embodied
