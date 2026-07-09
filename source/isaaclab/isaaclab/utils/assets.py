@@ -340,12 +340,26 @@ def retrieve_file_path(path: str, download_dir: str | None = None, force_downloa
 
             is_root_asset = local_root is None
             if not os.path.isfile(target_path) or force_download:
-                result = omni.client.copy(cur_url, target_path, omni.client.CopyBehavior.OVERWRITE)
+                # Download to a unique temp path then atomically move into place.
+                # Several processes on one node can share this ``download_dir`` (the
+                # default is the system temp dir) and race on the same target: a
+                # process that finds a peer's half-written file via
+                # :func:`os.path.isfile` reads a partial layer, which surfaces later
+                # as ``pxr.Tf.ErrorException: Failed reading N bytes at offset 0``.
+                # :func:`os.replace` is atomic within a filesystem, so readers only
+                # ever observe a complete file or no file at all.
+                tmp_path = f"{target_path}.{os.getpid()}.tmp"
+                result = omni.client.copy(cur_url, tmp_path, omni.client.CopyBehavior.OVERWRITE)
                 if result != omni.client.Result.OK:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
                     if force_download or is_root_asset:
                         raise RuntimeError(f"Unable to copy file: '{cur_url}'. Is the Nucleus Server running?")
                     logger.debug("Skipping unavailable dependency: %s", cur_url)
                     continue
+                os.replace(tmp_path, target_path)
 
             if local_root is None:
                 local_root = target_path
