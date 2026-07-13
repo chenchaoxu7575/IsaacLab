@@ -32,14 +32,14 @@ cluster:
   # per-worker gate (EmbodiedRunner calls worker.start/stop_profile ->
   # torch.cuda.profiler); NsightConfig auto-attaches capture-range=cudaProfilerApi.
   nsight:
-    enabled: true
+    enabled: false
     worker_groups: [ActorGroup, RolloutGroup, EnvGroup, Actor, Rollout, Env]
     ranks: [0, 1]        # only wrap rank 0 & 1's workers with nsys (avoid Ray pool blow-up)
-    steps: [3, 4]
+    steps: [1, 2, 3]  # step1 = nsys session cold-start warmup (discard); keep step2,step3
     options:
       t: cuda,cudnn,cublas,nvtx,osrt,vulkan   # +vulkan: Isaac Sim RTX (camera render)
       cuda-graph-trace: node                  # trace CUDA graphs (rollout capture_cuda_graph)
-      trace-fork-before-exec: true            # follow the spawned Isaac Sim subprocess (sim capture)
+      trace-fork-before-exec: false            # follow the spawned Isaac Sim subprocess (sim capture) # false: parent nsys must NOT follow Isaac child (child has own nsys session)
       sample: process-tree
       cpuctxsw: process-tree
       cudabacktrace: all
