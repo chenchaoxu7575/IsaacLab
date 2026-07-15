@@ -35,7 +35,12 @@ cluster:
     enabled: true
     worker_groups: [ActorGroup, RolloutGroup, EnvGroup, Actor, Rollout, Env]
     ranks: [0, 1]        # only wrap rank 0 & 1's workers with nsys (avoid Ray pool blow-up)
-    steps: [1, 2, 3]  # step1 = nsys session cold-start warmup (discard); keep step2,step3
+    steps: [3, 4, 5]  # step3 = throwaway that warms the Isaac session's CUPTI (a session's
+                      # FIRST `nsys start` arms NVTX/Vulkan but NOT CUDA), so step4 + step5
+                      # come back as TWO clean sim steps. Compute (cudaProfilerApi +
+                      # capture-range-end=stop) still grabs the first gated step = step3,
+                      # which for compute is already a clean steady-state training step
+                      # (compute has no session cold-start; it profiles from process start).
     options:
       t: cuda,cudnn,cublas,nvtx,osrt,vulkan   # +vulkan: Isaac Sim RTX (camera render)
       cuda-graph-trace: node                  # trace CUDA graphs (rollout capture_cuda_graph)
@@ -44,7 +49,17 @@ cluster:
       cpuctxsw: process-tree
       cudabacktrace: all
       osrt-threshold: 1000
-    flags: []
+      # Override the framework default (capture-range-end=stop, which finalizes
+      # after the FIRST cudaProfilerStop = step3 = the profiling-induced Isaac
+      # session cold-start, 429s). `repeat-shutdown:3` collects ALL three gated
+      # steps (3,4,5) and then FINALIZES the report mid-run (like `stop` does),
+      # instead of plain `repeat` which never finalizes until the process exits —
+      # the RLinf compute workers are hard-killed at run end, so `repeat` left
+      # 0-byte / missing reports. With :3 we get one report holding
+      # step3(cold)+step4+step5; analysis drops step3, uses step4/5 (aligned with
+      # the Isaac session reports) and can measure run_training end → next
+      # generate start handoff.
+      capture-range-end: repeat-shutdown:3
 
 runner:
   task_type: embodied
